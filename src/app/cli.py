@@ -7,7 +7,7 @@ from .db import get_db
 def setup_logging():
     logging.basicConfig(
         level=getattr(logging, SETTINGS.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 
 def cmd_fetch(args):
