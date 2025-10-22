@@ -21,9 +21,13 @@ class Settings:
     mongo_coll_lang_dist: str = _get_env("MONGO_COLL_LANG_DIST", "lang_distribution")
 
     fetch_limit: int = int(_get_env("FETCH_LIMIT", "150"))
-    requests_per_second: float = float(_get_env("REQUESTS_PER_SECOND", "2"))
     log_level: str = _get_env("LOG_LEVEL", "INFO")
     include_statistics: bool = _get_bool("INCLUDE_STATISTICS", "1")
     progress_every: int = int(_get_env("PROGRESS_EVERY", "10"))
-    
+    concurrency: int = int(_get_env("CONCURRENCY", "32"))
+    http_timeout: float = float(_get_env("HTTP_TIMEOUT", "20"))
+    retries: int = int(_get_env("RETRIES", "5"))
+    use_async: bool = _get_bool("USE_ASYNC", "1")
+    metrics_mode: str = _get_env("METRICS_MODE", "full")  # full|fast
+
 SETTINGS = Settings()

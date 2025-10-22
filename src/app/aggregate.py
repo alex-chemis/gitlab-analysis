@@ -1,5 +1,6 @@
 from .db import upsert_projects, recompute_lang_distribution
 from .gitlab_client import GitLabClient
+from .gitlab_client_async import AsyncGitLabClient
 from .config import SETTINGS
 import logging
 import time
@@ -7,14 +8,29 @@ import time
 log = logging.getLogger(__name__)
 
 def fetch(limit: int | None = None) -> int:
-    client = GitLabClient(
-        base_url=SETTINGS.gitlab_base_url,
-        token=SETTINGS.gitlab_token,
-        rps=SETTINGS.requests_per_second,
-    )
     target = limit or SETTINGS.fetch_limit
     t0 = time.time()
-    docs = client.fetch_projects_with_metrics(target)
+    if SETTINGS.use_async:
+        # ускоренный режим
+        async def _run():
+            client = AsyncGitLabClient()
+            try:
+                return await client.fetch_projects_with_metrics(target)
+            finally:
+                await client.aclose()
+        import asyncio, uvloop
+        try:
+            uvloop.install()
+        except Exception:
+            pass
+        docs = asyncio.run(_run())
+    else:
+        client = GitLabClient(
+            base_url=SETTINGS.gitlab_base_url,
+            token=SETTINGS.gitlab_token,
+            rps=SETTINGS.requests_per_second,
+        )
+        docs = client.fetch_projects_with_metrics(target)
     elapsed = time.time() - t0
     rps = (len(docs) / elapsed) if elapsed > 0 else 0.0
     cnt = upsert_projects(docs)
