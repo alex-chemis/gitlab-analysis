@@ -8,6 +8,7 @@ services:
       - mongo
     volumes:
       - ./src:/app/src:ro
+      - ./outputs:/app/outputs
     restart: on-failure
     # Можно переопределить команду: например, только агрегация
     # command: ["python", "-m", "app", "aggregate"]
