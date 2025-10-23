@@ -1,0 +1,42 @@
+services:
+  app:
+    build: .
+    container_name: glang-app
+    env_file:
+      - .env
+    depends_on:
+      - mongo
+    volumes:
+      - ./src:/app/src:ro
+      - ./outputs:/app/outputs
+    restart: on-failure
+    # Можно переопределить команду: например, только агрегация
+    # command: ["python", "-m", "app", "aggregate"]
+
+  mongo:
+    image: mongo:7
+    container_name: glang-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: gitlab_stats
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # Удобно посмотреть БД в браузере (опционально)
+  mongo-express:
+    image: mongo-express:1.0.2-20
+    container_name: glang-mongo-express
+    restart: unless-stopped
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+    ports:
+      - "8081:8081"
+    depends_on:
+      - mongo
+
+volumes:
+  mongo_data:
