@@ -20,3 +20,43 @@
 - Формат датасета: https://github.com/alex-chemis/gitlab-analysis/tree/main/data
 - Cкрипты: https://github.com/alex-chemis/gitlab-analysis/tree/main/src/scripts
 - Артефакты: https://github.com/alex-chemis/gitlab-analysis/tree/main/outputs
+
+
+## Запуск
+
+#### 1) Нужно изменить `.env.example` → `.env` и задать `GITLAB_TOKEN`.
+   Токен повышает лимиты API (персональный токен GitLab).
+
+#### 2) Собрать проект:
+```bash
+docker compose up -d --build
+```
+
+#### 3) Далее можно использовать следующие команды:
+```bash
+# Для сбора данных
+docker compose run --rm app python -m app fetch
+
+# Для построения гистограммы топ 20 языков
+docker compose run --rm app python -m scripts.lang_distribution_chart --top 20 --out /app/outputs/lang_top20.png
+
+# Для построения графика медианных форков по языкам
+docker compose run --rm app python -m scripts.median_forks_by_language \
+		--top-langs 20 --top 20 --min-projects 10 --out /app/outputs/median_forks_by_language.png
+
+# Для построения графика медианных звёзд по языкам
+docker compose run --rm app python -m scripts.median_stars_by_language \
+		--top-langs 20 --top 20 --min-projects 10 --out /app/outputs/median_stars_by_language.png
+
+# Для построения круговой диаграммы распределния проектов по языкам
+docker compose run --rm app python -m scripts.lang_pie_chart --top 12 --out /app/outputs/lang_pie.png
+
+# Для построения гистограммы количества языков по проектам
+docker compose run --rm app python -m scripts.languages_per_project_hist --out /app/outputs/languages_per_project.png
+```
+
+#### 4) Результаты 
+
+После выполнения вышеперечисленных команд система будет создавать графики в папке outputs
+
+В данном репозитории приведены данные графики после обработки 10 000 данных проектов
