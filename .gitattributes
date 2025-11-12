@@ -1,0 +1,26 @@
+# .gitattributes (в корне репо)
+
+*                text=auto eol=lf
+
+*.png           -text
+*.jpg           -text
+*.jpeg          -text
+*.gif           -text
+*.pdf           -text
+*.ico           -text
+*.zip           -text
+*.gz            -text
+
+*.sh            text eol=lf
+*.bash          text eol=lf
+*.py            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.env           text eol=lf
+Dockerfile      text eol=lf
+*.tf            text eol=lf
+*.sql           text eol=lf
+
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
