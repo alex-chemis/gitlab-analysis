@@ -3,21 +3,24 @@
 Берём lang_distribution; если коллекция пустая — считаем по projects.languages.
 С подробными логами и понятными ошибками.
 """
+
 import argparse
 import os
 from typing import List, Tuple
 from scripts.common.mongo import load_lang_distribution, compute_lang_distribution_from_projects
 from scripts.common.plot import pie_chart
 
+
 def compress_top(labels: List[str], values: List[int], top: int = 12) -> Tuple[List[str], List[int]]:
     if len(labels) <= top:
         return labels, values
-    labels_top = labels[:top-1]
-    values_top = values[:top-1]
-    other = sum(values[top-1:])
+    labels_top = labels[: top - 1]
+    values_top = values[: top - 1]
+    other = sum(values[top - 1 :])
     labels_top.append("Other")
     values_top.append(other)
     return labels_top, values_top
+
 
 def main():
     ap = argparse.ArgumentParser(description="Pie chart: распределение проектов по языкам")
@@ -61,7 +64,7 @@ def main():
         labels,
         values,
         args.out,
-        title="Распределение проектов по языкам (GitLab)",
+        title="Распределение проектов по языкам",
         random_colors=True,
         seed=args.seed,
     )
@@ -70,6 +73,7 @@ def main():
         print(f"[pie] готово: {out} ({os.path.getsize(out)} bytes)")
     else:
         print(f"[pie][ERROR] файл не создан: {out}")
+
 
 if __name__ == "__main__":
     main()
