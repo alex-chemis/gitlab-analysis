@@ -20,3 +20,17 @@ aggregate:
 
 report:
 	docker compose run --rm app python -m app report
+
+chart_pie:
+	docker compose run --rm app python -m scripts.lang_pie_chart --top 12 --out /app/outputs/lang_pie.png
+
+chart_langs_per_project:
+	docker compose run --rm app python -m scripts.languages_per_project_hist --out /app/outputs/languages_per_project.png
+
+chart_median_forks:
+	docker compose run --rm app python -m scripts.median_forks_by_language \
+		--top-langs 20 --top 20 --min-projects 10 --out /app/outputs/median_forks_by_language.png
+
+chart_median_stars:
+	docker compose run --rm app python -m scripts.median_stars_by_language \
+		--top-langs 20 --top 20 --min-projects 10 --out /app/outputs/median_stars_by_language.png
