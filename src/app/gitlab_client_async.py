@@ -4,10 +4,28 @@ import logging
 import math
 import random
 from typing import Any, Dict, List, Tuple
+from .db import upsert_projects
+import os, json
 
 import httpx
 
 from .config import SETTINGS
+
+PROGRESS_FILE = "/app/cache/fetch_progress.json"
+    
+def save_progress(page: int):
+    os.makedirs(os.path.dirname(PROGRESS_FILE), exist_ok=True)
+    with open(PROGRESS_FILE, "w") as f:
+        json.dump({"page": page}, f)
+
+def load_progress() -> int:
+    if os.path.exists(PROGRESS_FILE):
+        try:
+            with open(PROGRESS_FILE) as f:
+                return json.load(f).get("page", 1)
+        except json.JSONDecodeError:
+            return 1
+    return 1
 
 log = logging.getLogger(__name__)
 
@@ -65,10 +83,17 @@ class AsyncGitLabClient:
         r.raise_for_status()
         return r
 
-    async def list_projects(self, target: int) -> List[Dict[str, Any]]:
-        projects: List[Dict[str, Any]] = []
-        page = 1
+    async def list_projects(self, target: int) -> list[dict[str, Any]]:
+        """Fetch projects and enrich with details concurrently, saving directly to DB."""
+        projects: list[dict[str, Any]] = []
+        page = load_progress()
         per_page = 100
+
+        if page > 1:
+            log.info("Resuming from page %s (progress file)", page)
+        else:
+            log.info("Starting from first page")
+
         while len(projects) < target:
             params = {
                 "per_page": per_page,
@@ -79,15 +104,52 @@ class AsyncGitLabClient:
                 "visibility": "public",
                 "archived": "false",
             }
+
             log.info("Fetching projects page=%s ...", page)
             r = await self._request("GET", "/projects", params=params)
             batch = r.json() or []
             log.info("Projects page=%s: %s items", page, len(batch))
+
             if not batch:
+                log.info("No more pages — total fetched: %s", len(projects))
                 break
-            projects.extend(batch)
+
+            async def enrich_project(p):
+                pid = p.get("id")
+                if not pid:
+                    return None
+                try:
+                    full = await self.get_details(pid)
+                    full.update({k: v for k, v in p.items() if k not in full})
+                    langs = await self.get_languages(pid)
+                    full["languages"] = langs
+                    return full
+                except Exception as e:
+                    log.warning("Failed to enrich project %s: %s", pid, e)
+                    return None
+
+            sem = asyncio.Semaphore(SETTINGS.concurrency)
+
+            async def sem_task(p):
+                async with sem:
+                    return await enrich_project(p)
+
+            tasks = [asyncio.create_task(sem_task(p)) for p in batch]
+            enriched_batch = [r for r in await asyncio.gather(*tasks) if r]
+
+            if enriched_batch:
+                cnt = upsert_projects(enriched_batch)
+                log.info("Inserted/updated %s projects", cnt)
+
+            projects.extend(enriched_batch)
+            save_progress(page)
             page += 1
-        return projects[:target]
+
+            if len(projects) >= target:
+                break
+
+        return projects
+
 
     async def get_details(self, pid: int, want_stats: bool = True) -> Dict[str, Any]:
         params = {}
@@ -97,7 +159,6 @@ class AsyncGitLabClient:
             r = await self._request("GET", f"/projects/{pid}", params=params)
         except httpx.HTTPStatusError as e:
             if e.response is not None and e.response.status_code in (400, 401, 403):
-                # повтор без statistics
                 r = await self._request("GET", f"/projects/{pid}")
             else:
                 raise
@@ -161,40 +222,52 @@ class AsyncGitLabClient:
         }
         return doc
 
-    async def fetch_projects_with_metrics(self, target: int) -> List[Dict[str, Any]]:
+
+    async def fetch_projects_with_metrics(self, target: int) -> int:
+        """Fetch projects and directly upsert to MongoDB as we go."""
         t0 = asyncio.get_event_loop().time()
         projects = await self.list_projects(target)
         n = len(projects)
         if n == 0:
-            return []
-        log.info("Collected %s projects from listing, fetching details+languages with concurrency=%s",
-                 n, SETTINGS.concurrency)
+            return 0
 
-        results: List[Dict[str, Any]] = []
+        log.info("Fetched %s project references, starting details+languages...", n)
+
         ok = 0
         fail = 0
+        batch: list[dict] = []
+        BATCH_SIZE = 100
 
         async def _wrap(p):
-            nonlocal ok, fail
+            nonlocal ok, fail, batch
             try:
                 doc = await self.fetch_one(p)
-                results.append(doc)
+                batch.append(doc)
                 ok += 1
+                if len(batch) >= BATCH_SIZE:
+                    upsert_projects(batch)
+                    log.info("Uploaded %s projects so far...", ok)
+                    batch.clear()
             except Exception as e:
                 fail += 1
                 log.warning("Failed project %s: %s", p.get("id"), e)
-            # прогресс
+
             done = ok + fail
             if done % SETTINGS.progress_every == 0 or done == n:
                 elapsed = asyncio.get_event_loop().time() - t0
                 rps = done / elapsed if elapsed > 0 else 0.0
                 eta = (n - done) / rps if rps > 0 else 0.0
-                log.info("Progress: %s/%s (ok=%s, fail=%s) | http req=%s | rps=%.2f | ETA=%.0fs",
+                log.info("Progress: %s/%s ok=%s fail=%s | req=%s | rps=%.2f | ETA=%.0fs",
                          done, n, ok, fail, self.req_count, rps, eta)
 
-        # запускаем пачки задач, сохраняя ограничение семафора внутри _request
         await asyncio.gather(*[self._limited(_wrap, p) for p in projects[:target]])
-        return results
+
+        # Flush last batch
+        if batch:
+            upsert_projects(batch)
+
+        log.info("Finished: %s ok, %s failed", ok, fail)
+        return ok
 
     async def _limited(self, coro_func, *args, **kwargs):
         # просто обёртка чтобы не съезжали стеки ошибок

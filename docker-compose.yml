@@ -9,6 +9,7 @@ services:
     volumes:
       - ./src:/app/src:ro
       - ./outputs:/app/outputs
+      - ./cache:/app/cache
     restart: on-failure
     # Можно переопределить команду: например, только агрегация
     # command: ["python", "-m", "app", "aggregate"]

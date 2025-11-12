@@ -28,6 +28,9 @@ def cmd_report(_args):
     for i, it in enumerate(items, 1):
         print(f"{i:>2}. {it['language']:<18} {it['project_count']}")
 
+
+
+
 def main():
     setup_logging()
 

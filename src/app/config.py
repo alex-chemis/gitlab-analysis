@@ -25,7 +25,7 @@ class Settings:
     include_statistics: bool = _get_bool("INCLUDE_STATISTICS", "1")
     progress_every: int = int(_get_env("PROGRESS_EVERY", "10"))
     concurrency: int = int(_get_env("CONCURRENCY", "32"))
-    http_timeout: float = float(_get_env("HTTP_TIMEOUT", "20"))
+    http_timeout: float = float(_get_env("HTTP_TIMEOUT", "30"))
     retries: int = int(_get_env("RETRIES", "5"))
     use_async: bool = _get_bool("USE_ASYNC", "1")
     metrics_mode: str = _get_env("METRICS_MODE", "full")  # full|fast
