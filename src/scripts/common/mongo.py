@@ -8,14 +8,18 @@ from app.db import get_db as _get_db  # берём готовое подключ
 
 BATCH_SIZE = 1000
 
+
 def get_db():
     return _get_db()
+
 
 def projects_coll() -> Collection:
     return get_db()[SETTINGS.mongo_coll_projects]
 
+
 def lang_dist_coll() -> Collection:
     return get_db()[SETTINGS.mongo_coll_lang_dist]
+
 
 def load_lang_distribution(top: Optional[int] = None) -> List[Dict[str, Any]]:
     cur = lang_dist_coll().find().sort("project_count", -1)
@@ -23,19 +27,49 @@ def load_lang_distribution(top: Optional[int] = None) -> List[Dict[str, Any]]:
         cur = cur.limit(top)
     return list(cur)
 
-def iter_projects(projection: Optional[Dict[str, int]] = None) -> Iterable[Dict[str, Any]]:
+
+def iter_projects(
+    projection: Optional[Dict[str, int]] = None,
+) -> Iterable[Dict[str, Any]]:
     prj = projects_coll()
     if projection is None:
         projection = {"languages": 1, "details.statistics": 1}
     yield from prj.find({}, projection)
 
+
 def compute_lang_distribution_from_projects() -> Dict[str, int]:
-    counts: Dict[str, int] = {}
-    for p in iter_projects({"languages": 1}):
-        langs = (p.get("languages") or {}).keys()
-        for lang in langs:
-            counts[lang] = counts.get(lang, 0) + 1
-    return counts
+    """
+    Считает количество проектов на каждый язык (батчево, без полной выгрузки).
+    Возвращает словарь: {язык: число_проектов}.
+    """
+    db = get_db()
+    projects = db["projects"]
+
+    counter: Counter[str] = Counter()
+    cursor = projects.find({}, {"languages": 1}, no_cursor_timeout=True).batch_size(BATCH_SIZE)
+
+    try:
+        for idx, doc in enumerate(cursor, start=1):
+            # диагностический вывод раз в 100k (безопасно)
+            if idx % 100000 == 0:
+                print(f"[scan] processed {idx} documents...")
+
+            langs = doc.get("languages")
+            if not langs:
+                continue
+
+            # учитываем проект по одному разу для каждого языка
+            for lang in (langs or {}).keys():
+                counter[lang] += 1
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+
+    print(f"[diag] unique languages found: {len(counter)}, total language mentions: {sum(counter.values())}")
+    return dict(counter)
+
 
 def histogram_languages_per_project_batched(limit: int | None = None) -> dict[int, int]:
     """
