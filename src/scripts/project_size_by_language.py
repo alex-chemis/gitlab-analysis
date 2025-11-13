@@ -1,6 +1,6 @@
 """
 Комплексный анализ масштаба проектов по языкам программирования
-Показывает сбалансированную выборку из всех категорий: крупные, средние, небольшие проекты
+ОТНОСИТЕЛЬНАЯ КЛАССИФИКАЦИЯ - делит языки на категории по перцентилям
 """
 
 import argparse
@@ -38,15 +38,9 @@ def analyze_project_scale():
         if not languages:
             continue
 
-        star_count = p.get("star_count")
-        forks_count = p.get("forks_count")
-        issues_count = p.get("open_issues_count")
-
-        if star_count is None or forks_count is None:
-            continue
-
-        if issues_count is None:
-            issues_count = 0
+        star_count = p.get("star_count", 0) or 0
+        forks_count = p.get("forks_count", 0) or 0
+        issues_count = p.get("open_issues_count", 0) or 0
 
         projects_analyzed += 1
 
@@ -63,55 +57,39 @@ def analyze_project_scale():
     return metrics
 
 
-def calculate_composite_score(stars_median: float, forks_median: float, issues_median: float) -> Tuple[float, str]:
-  """
-  Вычисляет композитную оценку с адаптивными порогами
-  Основано на анализе реального распределения данных из базы
-  """
+def calculate_relative_composite_score(stars_median: float, forks_median: float, issues_median: float,
+                                     all_scores: List[float]) -> Tuple[float, str]:
+    """
+    ОТНОСИТЕЛЬНАЯ классификация - делит языки на категории по перцентилям
+    """
+    # Вычисляем композитную оценку (простая сумма нормализованных значений)
+    composite = (stars_median * 0.4 + forks_median * 0.35 + issues_median * 0.25)
 
-  # ПЕРЦЕНТИЛИ из анализа твоей базы (2218 проектов):
-  # На основе твоих реальных данных!
-  stars_percentiles = {10: 10, 25: 20, 50: 37, 75: 100, 90: 173, 95: 500, 99: 1000}
-  forks_percentiles = {10: 5, 25: 10, 50: 19, 75: 50, 90: 123, 95: 200, 99: 500}
-  issues_percentiles = {10: 0, 25: 5, 50: 17, 75: 30, 90: 50, 95: 100, 99: 200}
+    # Определяем категорию ОТНОСИТЕЛЬНО других языков
+    if not all_scores:
+        return composite, "НЕИЗВЕСТНО"
 
-  def get_score(value, percentiles):
-    """Вычисляет оценку 1-10 на основе перцентилей"""
-    if value >= percentiles[99]:
-      return 10  # Топ 1% проектов
-    elif value >= percentiles[95]:
-      return 9  # Топ 5% проектов
-    elif value >= percentiles[90]:
-      return 8  # Топ 10% проектов
-    elif value >= percentiles[75]:
-      return 7  # Топ 25% проектов
-    elif value >= percentiles[50]:
-      return 6  # Выше медианы
-    elif value >= percentiles[25]:
-      return 4  # Средние значения
-    elif value >= percentiles[10]:
-      return 2  # Ниже среднего
+    # Сортируем все оценки для вычисления перцентилей
+    sorted_scores = sorted(all_scores)
+    n = len(sorted_scores)
+
+    # Находим позицию текущего языка
+    position = sorted_scores.index(composite) if composite in sorted_scores else n // 2
+    percentile = (position / n) * 100
+
+    # Определяем категорию по перцентилю
+    if percentile >= 90:
+        category = "ОЧЕНЬ КРУПНЫЙ"  # Топ 10%
+    elif percentile >= 70:
+        category = "КРУПНЫЙ"        # Топ 30%
+    elif percentile >= 40:
+        category = "СРЕДНИЙ"        # Средние 30%
+    elif percentile >= 20:
+        category = "НЕБОЛЬШОЙ"      # Нижние 20%
     else:
-      return 1  # Низкие значения
+        category = "МИНИМАЛЬНЫЙ"    # Самые маленькие 20%
 
-  stars_score = get_score(stars_median, stars_percentiles)
-  forks_score = get_score(forks_median, forks_percentiles)
-  issues_score = get_score(issues_median, issues_percentiles)
-
-  # Взвешенная сумма (issues важнее для размера проекта)
-  composite = (stars_score * 0.2 + forks_score * 0.3 + issues_score * 0.5)
-
-  # Определяем категорию на основе композитной оценки
-  if composite >= 7.0:
-    category = "КРУПНЫЙ"  # 8-10 баллов по ключевым метрикам
-  elif composite >= 4.5:
-    category = "СРЕДНИЙ"  # 5-7 баллов по ключевым метрикам
-  elif composite >= 2.5:
-    category = "НЕБОЛЬШОЙ"  # 3-4 балла по ключевым метрикам
-  else:
-    category = "МИНИМАЛЬНЫЙ"  # 1-2 балла по ключевым метрикам
-
-  return composite, category
+    return round(composite, 1), category
 
 
 def get_balanced_language_selection(metrics_data: Dict, min_projects: int = 10):
@@ -119,7 +97,9 @@ def get_balanced_language_selection(metrics_data: Dict, min_projects: int = 10):
     Выбирает сбалансированную выборку языков из всех категорий
     """
     composite_scores = []
+    all_composite_scores = []
 
+    # Сначала собираем все оценки для относительной классификации
     for lang in set().union(*[set(data.keys()) for data in metrics_data.values()]):
         if all(lang in metrics_data[metric] for metric in ['stars', 'forks', 'issues']):
             stars_vals = metrics_data['stars'][lang]
@@ -131,7 +111,26 @@ def get_balanced_language_selection(metrics_data: Dict, min_projects: int = 10):
                 forks_med = median(forks_vals)
                 issues_med = median(issues_vals)
 
-                composite, category = calculate_composite_score(stars_med, forks_med, issues_med)
+                # Временная оценка для вычисления перцентилей
+                temp_composite = (stars_med * 0.4 + forks_med * 0.35 + issues_med * 0.25)
+                all_composite_scores.append(temp_composite)
+
+    # Теперь вычисляем финальные оценки с относительной классификацией
+    for lang in set().union(*[set(data.keys()) for data in metrics_data.values()]):
+        if all(lang in metrics_data[metric] for metric in ['stars', 'forks', 'issues']):
+            stars_vals = metrics_data['stars'][lang]
+            forks_vals = metrics_data['forks'][lang]
+            issues_vals = metrics_data['issues'][lang]
+
+            if len(stars_vals) >= min_projects:
+                stars_med = median(stars_vals)
+                forks_med = median(forks_vals)
+                issues_med = median(issues_vals)
+
+                # ИСПОЛЬЗУЕМ ОТНОСИТЕЛЬНУЮ КЛАССИФИКАЦИЮ
+                composite, category = calculate_relative_composite_score(
+                    stars_med, forks_med, issues_med, all_composite_scores
+                )
                 project_count = len(stars_vals)
 
                 composite_scores.append((lang, composite, stars_med, forks_med, issues_med, project_count, category))
@@ -140,36 +139,45 @@ def get_balanced_language_selection(metrics_data: Dict, min_projects: int = 10):
     composite_scores.sort(key=lambda x: x[1], reverse=True)
 
     # Разделяем по категориям
-    large_projects = [lang for lang in composite_scores if lang[6] == "КРУПНЫЙ"]
-    medium_projects = [lang for lang in composite_scores if lang[6] == "СРЕДНИЙ"]
-    small_projects = [lang for lang in composite_scores if lang[6] == "НЕБОЛЬШОЙ"]
-    minimal_projects = [lang for lang in composite_scores if lang[6] == "МИНИМАЛЬНЫЙ"]
+    very_large = [lang for lang in composite_scores if lang[6] == "ОЧЕНЬ КРУПНЫЙ"]
+    large = [lang for lang in composite_scores if lang[6] == "КРУПНЫЙ"]
+    medium = [lang for lang in composite_scores if lang[6] == "СРЕДНИЙ"]
+    small = [lang for lang in composite_scores if lang[6] == "НЕБОЛЬШОЙ"]
+    minimal = [lang for lang in composite_scores if lang[6] == "МИНИМАЛЬНЫЙ"]
 
     logger.info(f"📊 РАСПРЕДЕЛЕНИЕ ПО КАТЕГОРИЯМ:")
-    logger.info(f"  КРУПНЫЕ: {len(large_projects)} языков")
-    logger.info(f"  СРЕДНИЕ: {len(medium_projects)} языков")
-    logger.info(f"  НЕБОЛЬШИЕ: {len(small_projects)} языков")
-    logger.info(f"  МИНИМАЛЬНЫЕ: {len(minimal_projects)} языков")
+    logger.info(f"  ОЧЕНЬ КРУПНЫЕ: {len(very_large)} языков")
+    logger.info(f"  КРУПНЫЕ: {len(large)} языков")
+    logger.info(f"  СРЕДНИЕ: {len(medium)} языков")
+    logger.info(f"  НЕБОЛЬШИЕ: {len(small)} языков")
+    logger.info(f"  МИНИМАЛЬНЫЕ: {len(minimal)} языков")
 
-    # Выбираем представителей из каждой категории (по 5 из каждой)
-    samples_large = min(5, len(large_projects))
-    samples_medium = min(5, len(medium_projects))
-    samples_small = min(5, len(small_projects))
-    samples_minimal = min(5, len(minimal_projects))
+    # Выбираем по 3 языка из каждой категории (если есть)
+    balanced_selection = []
 
-    balanced_selection = (
-        large_projects[:samples_large] +
-        medium_projects[:samples_medium] +
-        small_projects[:samples_small] +
-        minimal_projects[:samples_minimal]
-    )
+    # ОЧЕНЬ КРУПНЫЕ - берем все или максимум 3
+    balanced_selection.extend(very_large[:3])
 
-    logger.info(f"📋 ВЫБОРКА ДЛЯ ГРАФИКА:")
-    logger.info(f"  КРУПНЫЕ: {samples_large} языков")
-    logger.info(f"  СРЕДНИЕ: {samples_medium} языков")
-    logger.info(f"  НЕБОЛЬШИЕ: {samples_small} языков")
-    logger.info(f"  МИНИМАЛЬНЫЕ: {samples_minimal} языков")
+    # КРУПНЫЕ - берем максимум 3
+    balanced_selection.extend(large[:3])
 
+    # СРЕДНИЕ - берем максимум 3
+    balanced_selection.extend(medium[:3])
+
+    # НЕБОЛЬШИЕ - берем максимум 3
+    balanced_selection.extend(small[:3])
+
+    # МИНИМАЛЬНЫЕ - берем максимум 3
+    balanced_selection.extend(minimal[:3])
+
+    # Если в каких-то категориях нет языков, добираем из других
+    if len(balanced_selection) < 10:
+        # Добавляем топовые языки из общего списка
+        for lang_data in composite_scores:
+            if lang_data not in balanced_selection and len(balanced_selection) < 15:
+                balanced_selection.append(lang_data)
+
+    logger.info(f"📋 ВЫБОРКА ДЛЯ ГРАФИКА: {len(balanced_selection)} языков")
     return balanced_selection
 
 
@@ -185,7 +193,7 @@ def create_balanced_chart(metric_results: List[Tuple], output_path: str):
     values = []
 
     for lang, composite, stars, forks, issues, count, category in metric_results:
-        # Создаем информативную метку (без эмодзи)
+        # Создаем информативную метку
         label = f"{lang} ({category})"
         labels.append(label)
         values.append(composite)
@@ -195,8 +203,8 @@ def create_balanced_chart(metric_results: List[Tuple], output_path: str):
         labels=labels,
         values=values,
         out_path=output_path,
-        title="Сбалансированный анализ масштаба проектов по языкам",
-        xlabel="Композитная оценка масштаба (0-10)",
+        title="Анализ масштаба проектов по языкам программирования",
+        xlabel="Композитная оценка масштаба",
         ylabel="Языки программирования"
     )
 
@@ -205,7 +213,7 @@ def create_balanced_chart(metric_results: List[Tuple], output_path: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Сбалансированный анализ масштаба проектов по языкам программирования"
+        description="Анализ масштаба проектов по языкам программирования"
     )
     parser.add_argument(
         "--min-projects",
@@ -216,8 +224,8 @@ def main():
     parser.add_argument(
         "--out",
         type=str,
-        default="/app/outputs/project_size_by_language",
-        help="Базовый путь для сохранения графиков"
+        default="/app/outputs/project_scale_analysis.png",
+        help="Путь для сохранения графика"
     )
 
     args = parser.parse_args()
@@ -230,17 +238,18 @@ def main():
     balanced_selection = get_balanced_language_selection(metrics_data, args.min_projects)
 
     # Создаем сбалансированный график
-    balanced_path = create_balanced_chart(balanced_selection, f"{args.out}.png")
+    balanced_path = create_balanced_chart(balanced_selection, args.out)
 
     # Выводим результаты
-    logger.info(f"\n🎯 СБАЛАНСИРОВАННЫЙ АНАЛИЗ МАСШТАБА ПРОЕКТОВ")
+    logger.info(f"\n🎯 АНАЛИЗ МАСШТАБА ПРОЕКТОВ (ОТНОСИТЕЛЬНАЯ КЛАССИФИКАЦИЯ)")
     logger.info("=" * 80)
 
     logger.info("📊 ЛЕГЕНДА КАТЕГОРИЙ:")
-    logger.info("  КРУПНЫЙ (7.0-10.0) - Высокопопулярные проекты с большой кодовой базой")
-    logger.info("  СРЕДНИЙ (4.5-6.9) - Заметные проекты со значительной функциональностью")
-    logger.info("  НЕБОЛЬШОЙ (2.5-4.4) - Специализированные проекты или утилиты")
-    logger.info("  МИНИМАЛЬНЫЙ (0.0-2.4) - Простые инструменты, скрипты")
+    logger.info("  ОЧЕНЬ КРУПНЫЙ - Топ 10% языков по масштабу проектов")
+    logger.info("  КРУПНЫЙ - Следующие 20% (топ 11-30%)")
+    logger.info("  СРЕДНИЙ - Средние 30% (31-60%)")
+    logger.info("  НЕБОЛЬШОЙ - Следующие 20% (61-80%)")
+    logger.info("  МИНИМАЛЬНЫЙ - Нижние 20% (81-100%)")
     logger.info("")
 
     # Группируем по категориям для вывода
@@ -252,14 +261,14 @@ def main():
         categories[category].append(lang_data)
 
     # Выводим по категориям
-    for category_name in ["КРУПНЫЙ", "СРЕДНИЙ", "НЕБОЛЬШОЙ", "МИНИМАЛЬНЫЙ"]:
-        if category_name in categories:
+    for category_name in ["ОЧЕНЬ КРУПНЫЙ", "КРУПНЫЙ", "СРЕДНИЙ", "НЕБОЛЬШОЙ", "МИНИМАЛЬНЫЙ"]:
+        if category_name in categories and categories[category_name]:
             logger.info(f"\n{category_name}:")
             for lang, composite, stars, forks, issues, count, _ in categories[category_name]:
-                logger.info(f"  {lang:<15} {composite:5.1f}/10 | Stars:{stars:4.0f} Forks:{forks:3.0f} Issues:{issues:3.0f} (n={count})")
+                logger.info(f"  {lang:<15} {composite:5.1f} | Stars:{stars:4.0f} Forks:{forks:3.0f} Issues:{issues:3.0f} (n={count})")
 
     logger.info(f"\n✅ ГРАФИК СОХРАНЕН: {balanced_path}")
-    logger.info("🎯 Сбалансированный анализ масштаба проектов завершен!")
+    logger.info("🎯 Анализ масштаба проектов завершен!")
 
 
 if __name__ == "__main__":
