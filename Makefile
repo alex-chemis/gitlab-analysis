@@ -34,3 +34,9 @@ chart_median_forks:
 chart_median_stars:
 	docker compose run --rm app python -m scripts.median_stars_by_language \
 		--top-langs 20 --top 20 --min-projects 10 --out /app/outputs/median_stars_by_language.png
+
+chart_forecast:
+	docker compose run --rm app python -m scripts.forecast_languages \
+    --months 18 \
+    --top 10 \
+    --out /app/outputs
